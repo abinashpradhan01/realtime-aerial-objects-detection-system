@@ -58,27 +58,32 @@ class DroneDetectionProcessor(VideoProcessorBase):
         self.threshold = self.model.threshold if self.model else 0.5
         self.frame_count = 0
         self.detection_count = 0
+        self.last_annotated = None
 
     def recv(self, frame):
         try:
             if self.model is None:
                 return frame
-            
-            # Convert frame to numpy array
             img = frame.to_ndarray(format="bgr24")
-            
-            # Run detection
-            results = self.model.detect_frame_array(img)
-            
-            # Annotate frame if objects detected
-            if results and len(results) > 0 and results[0].boxes is not None and len(results[0].boxes) > 0:
-                img = self.model.annotate_frame(img, results)
-                self.detection_count += 1
-            
             self.frame_count += 1
-            
-            return av.VideoFrame.from_ndarray(img, format="bgr24")
-            
+            # Only process every 3rd frame
+            if self.frame_count % 3 != 0:
+                # Show last annotated frame if available, else show original
+                if self.last_annotated is not None:
+                    return av.VideoFrame.from_ndarray(self.last_annotated, format="bgr24")
+                else:
+                    return frame
+            # Resize for faster inference
+            target_size = (640, 360)
+            img_resized = cv2.resize(img, target_size)
+            results = self.model.detect_frame_array(img_resized)
+            if results and len(results) > 0 and results[0].boxes is not None and len(results[0].boxes) > 0:
+                img_resized = self.model.annotate_frame(img_resized, results)
+                self.detection_count += 1
+            # Resize back to original for display
+            img_out = cv2.resize(img_resized, (img.shape[1], img.shape[0]))
+            self.last_annotated = img_out
+            return av.VideoFrame.from_ndarray(img_out, format="bgr24")
         except Exception as e:
             st.error(f"Error in video processing: {e}")
             return frame
