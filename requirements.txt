@@ -7,7 +7,9 @@ ultralytics
 fastapi
 
 # Image/video processing
-opencv-python
+streamlit
+opencv-python-headless
+numpy
 Pillow
 
 # Web UI
@@ -17,5 +19,5 @@ gradio>=4.0
 tensorboard
 
 # Optional but recommended
-numpy
+
 matplotlib  # for plotting detections (optional)
