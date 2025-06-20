@@ -8,6 +8,7 @@ fastapi
 
 # Image/video processing
 streamlit
+streamlit-webrtc
 opencv-python-headless
 numpy
 Pillow
