@@ -9,6 +9,7 @@ from core.predict import ObjectDetector
 from streamlit_webrtc import webrtc_streamer, VideoProcessorBase, WebRtcMode
 import av
 import time
+import threading
 
 # MUST BE FIRST - Set page config
 st.set_page_config(
@@ -31,6 +32,7 @@ def load_video_detector():
     """Load video detector with caching"""
     try:
         if not os.path.exists(VIDEO_MODEL_PATH):
+            st.warning(f"Video model not found at: {VIDEO_MODEL_PATH}")
             return None
         return ObjectDetector(model_path=VIDEO_MODEL_PATH)
     except Exception as e:
@@ -42,6 +44,7 @@ def load_live_detector():
     """Load live detector with caching"""
     try:
         if not os.path.exists(LIVE_MODEL_PATH):
+            st.warning(f"Live model not found at: {LIVE_MODEL_PATH}")
             return None
         return ObjectDetector(model_path=LIVE_MODEL_PATH)
     except Exception as e:
@@ -59,31 +62,60 @@ class DroneDetectionProcessor(VideoProcessorBase):
         self.frame_count = 0
         self.detection_count = 0
         self.last_annotated = None
+        self.processing_lock = threading.Lock()
+        self.process_every_n_frames = 3
+        self.last_detection_time = 0
+        self.detection_timeout = 2.0  # Shows detection for 2 seconds
 
     def recv(self, frame):
         try:
             if self.model is None:
                 return frame
+            
             img = frame.to_ndarray(format="bgr24")
-            self.frame_count += 1
-            # Only process every 3rd frame
-            if self.frame_count % 3 != 0:
-                # Show last annotated frame if available, else show original
-                if self.last_annotated is not None:
-                    return av.VideoFrame.from_ndarray(self.last_annotated, format="bgr24")
+            
+            with self.processing_lock:
+                self.frame_count += 1
+                current_time = time.time()
+                
+                # Only process every nth frame for performance
+                should_process = (self.frame_count % self.process_every_n_frames == 0)
+                
+                if should_process:
+                    # Resize for faster inference
+                    target_size = (640, 360)
+                    img_resized = cv2.resize(img, target_size)
+                    
+                    # Run detection
+                    results = self.model.detect_frame_array(img_resized)
+                    
+                    # Check for detections
+                    has_detections = False
+                    if results and len(results) > 0:
+                        result = results[0]
+                        if result.boxes is not None and len(result.boxes) > 0:
+                            has_detections = True
+                            self.detection_count += 1
+                            self.last_detection_time = current_time
+                            
+                            # Annotate the resized frame
+                            img_resized = self.model.annotate_frame(img_resized, results)
+                    
+                    # Resize back to original dimensions
+                    img_out = cv2.resize(img_resized, (img.shape[1], img.shape[0]))
+                    self.last_annotated = img_out.copy()
+                    
+                    return av.VideoFrame.from_ndarray(img_out, format="bgr24")
+                
                 else:
-                    return frame
-            # Resize for faster inference
-            target_size = (640, 360)
-            img_resized = cv2.resize(img, target_size)
-            results = self.model.detect_frame_array(img_resized)
-            if results and len(results) > 0 and results[0].boxes is not None and len(results[0].boxes) > 0:
-                img_resized = self.model.annotate_frame(img_resized, results)
-                self.detection_count += 1
-            # Resize back to original for display
-            img_out = cv2.resize(img_resized, (img.shape[1], img.shape[0]))
-            self.last_annotated = img_out
-            return av.VideoFrame.from_ndarray(img_out, format="bgr24")
+                    # Use last annotated frame if we have recent detections
+                    if (self.last_annotated is not None and 
+                        current_time - self.last_detection_time < self.detection_timeout):
+                        return av.VideoFrame.from_ndarray(self.last_annotated, format="bgr24")
+                    else:
+                        # Return original frame if no recent detections
+                        return frame
+                        
         except Exception as e:
             st.error(f"Error in video processing: {e}")
             return frame
@@ -94,8 +126,10 @@ def clear_folder(folder):
         if os.path.exists(folder):
             shutil.rmtree(folder)
         os.makedirs(folder, exist_ok=True)
+        return True
     except Exception as e:
         st.error(f"Error clearing folder {folder}: {e}")
+        return False
 
 def cleanup_temp_files(paths):
     """Clean up temporary files"""
@@ -111,6 +145,11 @@ def process_uploaded_video(video_file):
     if video_detector is None:
         return [], 'Video detector not loaded. Please check model file.'
     
+    # Validate file size (limit to 100MB for performance)
+    max_size = 100 * 1024 * 1024  # 100MB
+    if video_file.size > max_size:
+        return [], f'Video file too large ({video_file.size / (1024*1024):.1f}MB). Maximum size: 100MB'
+    
     # Create temporary video file
     temp_video_path = tempfile.mktemp(suffix='.mp4')
     
@@ -119,9 +158,17 @@ def process_uploaded_video(video_file):
         with open(temp_video_path, 'wb') as f:
             f.write(video_file.read())
         
+        # Validate video file
+        cap = cv2.VideoCapture(temp_video_path)
+        if not cap.isOpened():
+            cleanup_temp_files([temp_video_path])
+            return [], 'Invalid video file format or corrupted file.'
+        cap.release()
+        
         # Clear input and output directories
-        clear_folder(INPUT_FRAMES_DIR)
-        clear_folder(OUTPUT_FRAMES_DIR)
+        if not clear_folder(INPUT_FRAMES_DIR) or not clear_folder(OUTPUT_FRAMES_DIR):
+            cleanup_temp_files([temp_video_path])
+            return [], 'Error preparing directories for processing.'
         
         # Extract frames
         st.info("Extracting frames from video...")
@@ -134,7 +181,7 @@ def process_uploaded_video(video_file):
         st.info(f"Extracted {frame_count} frames. Running drone detection...")
         
         # Run detection on extracted frames
-        video_detector.detect_objects_in_folder(INPUT_FRAMES_DIR, OUTPUT_FRAMES_DIR)
+        detection_results = video_detector.detect_objects_in_folder(INPUT_FRAMES_DIR, OUTPUT_FRAMES_DIR)
         
         # Get detected images
         try:
@@ -190,8 +237,14 @@ def main():
     st.sidebar.write(f"Video Model: {video_status}")
     st.sidebar.write(f"Live Model: {live_status}")
     
+    # Model info
+    if video_detector:
+        st.sidebar.text(f"Video Model: {os.path.basename(VIDEO_MODEL_PATH)}")
+    if live_detector:
+        st.sidebar.text(f"Live Model: {os.path.basename(LIVE_MODEL_PATH)}")
+    
     if mode == 'Video Upload Detection':
-        st.header('📹 Video Upload Detection')
+        st.header('📹 Stock Video Detection')
         st.write('Upload any video file (stock footage, webcam recordings, etc.). The app will extract frames and detect drones.')
         
         if video_detector is None:
@@ -201,7 +254,7 @@ def main():
         video_file = st.file_uploader(
             'Upload Video File', 
             type=['mp4', 'avi', 'mov', 'mkv', 'wmv'],
-            help="Supported formats: MP4, AVI, MOV, MKV, WMV. Works with any video source including webcam recordings."
+            help="Supported formats: MP4, AVI, MOV, MKV, WMV. Maximum size: 100MB"
         )
         
         if video_file is not None:
@@ -212,9 +265,8 @@ def main():
                 with st.spinner('Processing video... This may take a few minutes.'):
                     images, status = process_uploaded_video(video_file)
                 
-                st.success(status)
-                
                 if images:
+                    st.success(status)
                     st.subheader(f"🎯 Detection Results ({len(images)} frames)")
                     
                     # Display images in columns
@@ -229,6 +281,8 @@ def main():
                                         caption=f'Frame {i + j + 1}',
                                         use_container_width=True
                                     )
+                else:
+                    st.warning(status)
     
     elif mode == 'Live Webcam Detection':
         st.header('📷 Live Webcam Detection')
@@ -259,12 +313,28 @@ def main():
         
         # Display stats if active
         if webrtc_ctx.video_processor:
-            st.subheader("📊 Detection Statistics")
-            col1, col2 = st.columns(2)
-            with col1:
-                st.metric("Frames Processed", webrtc_ctx.video_processor.frame_count)
-            with col2:
-                st.metric("Detections", webrtc_ctx.video_processor.detection_count)
+            st.subheader("📊 Live Detection Statistics")
+            
+            # Create placeholder for real-time updates
+            stats_placeholder = st.empty()
+            
+            # Get current stats
+            processor = webrtc_ctx.video_processor
+            if hasattr(processor, 'frame_count') and hasattr(processor, 'detection_count'):
+                with stats_placeholder.container():
+                    col1, col2, col3 = st.columns(3)
+                    with col1:
+                        st.metric("Frames Processed", processor.frame_count)
+                    with col2:
+                        st.metric("Detections", processor.detection_count)
+                    with col3:
+                        detection_rate = (processor.detection_count / max(processor.frame_count, 1)) * 100
+                        st.metric("Detection Rate", f"{detection_rate:.1f}%")
+                
+                # Add performance info
+                st.text(f"Processing: Every {processor.process_every_n_frames} frames")
+                st.text(f"Model: {os.path.basename(LIVE_MODEL_PATH)}")
+                st.text(f"Threshold: {processor.threshold}")
 
     # Footer
     st.sidebar.markdown("---")

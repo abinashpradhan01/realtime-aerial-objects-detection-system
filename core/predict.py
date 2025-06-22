@@ -62,12 +62,12 @@ class ObjectDetector:
             os.makedirs(output_folder, exist_ok=True)
         except Exception as e:
             print(f"❌ Error creating output folder: {e}")
-            return
+            return {"processed": 0, "detections": 0, "errors": 1}
 
         # Check if input folder exists
         if not os.path.exists(input_folder):
             print(f"❌ Input folder not found: {input_folder}")
-            return
+            return {"processed": 0, "detections": 0, "errors": 1}
 
         # Get all image files
         image_extensions = (".jpg", ".jpeg", ".png", ".bmp", ".tiff", ".webp")
@@ -79,15 +79,16 @@ class ObjectDetector:
             image_files.sort()  # Sort for consistent processing order
         except Exception as e:
             print(f"❌ Error reading input folder: {e}")
-            return
+            return {"processed": 0, "detections": 0, "errors": 1}
         
         if not image_files:
             print(f"❌ No image files found in: {input_folder}")
-            return
+            return {"processed": 0, "detections": 0, "errors": 0}
 
         print(f"[INFO] Processing {len(image_files)} images...")
         processed_count = 0
         detection_count = 0
+        error_count = 0
 
         for filename in image_files:
             image_path = os.path.join(input_folder, filename)
@@ -98,23 +99,27 @@ class ObjectDetector:
                 
                 if results is None:
                     print(f"[SKIP] {filename} - Detection failed")
+                    error_count += 1
                     continue
                 
                 # Check if any objects were detected
                 if not results or len(results) == 0:
                     print(f"[NO DETECTIONS] {filename} - No results returned")
+                    processed_count += 1
                     continue
                 
                 result = results[0]  # Get first result
                 
                 if result.boxes is None or len(result.boxes) == 0:
                     print(f"[NO DETECTIONS] {filename} - No objects detected")
+                    processed_count += 1
                     continue
 
                 # Load original image
                 original_image = cv2.imread(image_path)
                 if original_image is None:
                     print(f"❌ Could not load image: {filename}")
+                    error_count += 1
                     continue
 
                 # Get detection boxes
@@ -122,61 +127,50 @@ class ObjectDetector:
                 
                 if len(boxes) == 0:
                     print(f"[NO DETECTIONS] {filename} - Empty boxes")
+                    processed_count += 1
                     continue
 
-                # Draw bounding boxes and labels
-                for i, box in enumerate(boxes):
-                    try:
-                        x1, y1, x2, y2, conf, cls = box[:6]
-                        x1, y1, x2, y2 = map(int, [x1, y1, x2, y2])
-                        
-                        # Ensure coordinates are within image bounds
-                        height, width = original_image.shape[:2]
-                        x1 = max(0, min(x1, width - 1))
-                        y1 = max(0, min(y1, height - 1))
-                        x2 = max(x1 + 1, min(x2, width))
-                        y2 = max(y1 + 1, min(y2, height))
-                        
-                        # Draw bounding box
-                        cv2.rectangle(original_image, (x1, y1), (x2, y2), (0, 255, 0), 2)
-                        
-                        # Draw label
-                        label = f"Drone: {conf:.2f}"
-                        label_size = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.5, 2)[0]
-                        
-                        # Ensure label fits within image
-                        label_y = max(y1 - 10, label_size[1] + 5)
-                        
-                        cv2.putText(original_image, label, (x1, label_y),
-                                    cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 255), 2)
-                        
-                    except Exception as e:
-                        print(f"⚠️ Warning: Error drawing box {i} for {filename}: {e}")
-                        continue
+                # Annotate image with detections
+                annotated_image = self.annotate_frame(original_image.copy(), results)
 
                 # Save annotated image
                 output_path = os.path.join(output_folder, filename)
-                success = cv2.imwrite(output_path, original_image)
+                success = cv2.imwrite(output_path, annotated_image)
                 
                 if success:
                     detection_count += 1
                     print(f"[SAVED] {filename} -> {output_path} ({len(boxes)} objects)")
                 else:
                     print(f"❌ Failed to save: {output_path}")
+                    error_count += 1
 
             except Exception as e:
                 print(f"❌ Error processing {filename}: {e}")
+                error_count += 1
                 continue
             
             processed_count += 1
 
         print(f"[SUMMARY] Processed: {processed_count}/{len(image_files)} images")
         print(f"[SUMMARY] Images with detections: {detection_count}")
+        print(f"[SUMMARY] Errors: {error_count}")
+        
+        return {
+            "processed": processed_count,
+            "detections": detection_count,
+            "errors": error_count,
+            "total_files": len(image_files)
+        }
 
     def detect_frame_array(self, frame_array):
         """Detect objects in a numpy array frame (for live detection)"""
         try:
             if frame_array is None or frame_array.size == 0:
+                return None
+            
+            # Validate frame dimensions
+            if len(frame_array.shape) != 3 or frame_array.shape[2] != 3:
+                print(f"❌ Invalid frame shape: {frame_array.shape}")
                 return None
             
             # Run inference directly on the numpy array
@@ -200,27 +194,87 @@ class ObjectDetector:
             # Get detection boxes
             boxes = result.boxes.data.cpu().numpy()
             
+            # Get frame dimensions
+            height, width = frame.shape[:2]
+            
             for box in boxes:
-                x1, y1, x2, y2, conf, cls = box[:6]
-                x1, y1, x2, y2 = map(int, [x1, y1, x2, y2])
-                
-                # Ensure coordinates are within frame bounds
-                height, width = frame.shape[:2]
-                x1 = max(0, min(x1, width - 1))
-                y1 = max(0, min(y1, height - 1))
-                x2 = max(x1 + 1, min(x2, width))
-                y2 = max(y1 + 1, min(y2, height))
-                
-                # Draw bounding box
-                cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 255, 0), 2)
-                
-                # Draw label
-                label = f"Drone: {conf:.2f}"
-                cv2.putText(frame, label, (x1, y1 - 10),
-                            cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 255), 2)
+                try:
+                    x1, y1, x2, y2, conf, cls = box[:6]
+                    x1, y1, x2, y2 = map(int, [x1, y1, x2, y2])
+                    
+                    # Ensure coordinates are within frame bounds
+                    x1 = max(0, min(x1, width - 1))
+                    y1 = max(0, min(y1, height - 1))
+                    x2 = max(x1 + 1, min(x2, width))
+                    y2 = max(y1 + 1, min(y2, height))
+                    
+                    # Calculate box dimensions for dynamic styling
+                    box_width = x2 - x1
+                    box_height = y2 - y1
+                    
+                    # Dynamic line thickness based on box size
+                    line_thickness = max(1, min(3, int(min(box_width, box_height) / 100)))
+                    
+                    # Draw bounding box with confidence-based color
+                    if conf >= 0.8:
+                        color = (0, 255, 0)  # Green for high confidence
+                    elif conf >= 0.5:
+                        color = (0, 165, 255)  # Orange for medium confidence
+                    else:
+                        color = (0, 0, 255)  # Red for low confidence
+                    
+                    cv2.rectangle(frame, (x1, y1), (x2, y2), color, line_thickness)
+                    
+                    # Draw label with background
+                    label = f"Drone: {conf:.2f}"
+                    font_scale = max(0.4, min(0.8, box_width / 200))
+                    font_thickness = max(1, int(font_scale * 2))
+                    
+                    label_size = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, font_scale, font_thickness)[0]
+                    
+                    # Calculate label position
+                    label_x = x1
+                    label_y = max(y1 - 10, label_size[1] + 5)
+                    
+                    # Draw label background
+                    cv2.rectangle(frame, 
+                                (label_x, label_y - label_size[1] - 5),
+                                (label_x + label_size[0] + 5, label_y + 5),
+                                color, -1)
+                    
+                    # Draw label text
+                    cv2.putText(frame, label, (label_x + 2, label_y),
+                                cv2.FONT_HERSHEY_SIMPLEX, font_scale, (255, 255, 255), font_thickness)
+                    
+                except Exception as e:
+                    print(f"⚠️ Warning: Error drawing box: {e}")
+                    continue
             
             return frame
             
         except Exception as e:
             print(f"❌ Error annotating frame: {e}")
             return frame
+
+    def get_model_info(self):
+        """Get model information"""
+        try:
+            return {
+                "model_path": self.model_path,
+                "device": self.device,
+                "threshold": self.threshold,
+                "classes": list(self.model.names.values()) if hasattr(self.model, 'names') else ["Unknown"]
+            }
+        except Exception as e:
+            print(f"❌ Error getting model info: {e}")
+            return {"error": str(e)}
+
+    def update_threshold(self, new_threshold):
+        """Update detection threshold"""
+        if 0.0 <= new_threshold <= 1.0:
+            self.threshold = new_threshold
+            print(f"[INFO] Detection threshold updated to: {self.threshold}")
+            return True
+        else:
+            print(f"❌ Invalid threshold value: {new_threshold}. Must be between 0.0 and 1.0")
+            return False
