@@ -1,0 +1,21 @@
+install miniconda
+install jupyter notebook
+conda create -n dl-env-ab python=3.10 -y && \
+conda activate dl-env-ab && \
+conda install pytorch torchvision torchaudio pytorch-cuda=12.1 -c pytorch -c nvidia -y && \
+conda install ipython jupyter notebook matplotlib pandas scikit-learn seaborn tqdm -y && \
+conda install -c conda-forge opencv pillow -y && \
+pip install albumentations ipykernel && \
+python -m ipykernel install --user --name=dl-env-ab --display-name "Python (dl-env-ab)"
+
+pip install ultralytics
+
+
+download dataset the largest one in yolov11 format from roboflow
+transfer the .zip file
+create a new folder
+unzip the dataset
+transfer the model
+transfer the notebook, do final check, start training
+do observation for 30 minutes
+set screen saver script running and make changes to sleep that - sleep never

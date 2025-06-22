@@ -19,7 +19,7 @@ st.set_page_config(
 
 # Model paths
 VIDEO_MODEL_PATH = "models/2_best.pt"          # For stock footage
-LIVE_MODEL_PATH = "models/nano/1_nano.pt"      # For live webcam
+LIVE_MODEL_PATH = "models/nano/2_nano.pt"      # For live webcam
 
 # Directory paths
 INPUT_FRAMES_DIR = "core/input_frames"
