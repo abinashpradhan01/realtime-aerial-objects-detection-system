@@ -1,4 +1,4 @@
-# 🛡️ Real-Time Drone Intrusion Detection System
+# 🛡️ Real-Time Drone Detection System
 
 A sophisticated drone and aerial object detection system powered by custom-trained YOLOv11 models. Designed for real-time surveillance, security, and defense applications with both video analysis and live webcam detection capabilities.
 
