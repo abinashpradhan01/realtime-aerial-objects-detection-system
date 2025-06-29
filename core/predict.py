@@ -23,8 +23,11 @@ class ObjectDetector:
             
             # Only fuse if model supports it (some models might not)
             try:
-                self.model.fuse()
-                print("[INFO] Model fused successfully")
+                if hasattr(self.model, 'fuse'):
+                    self.model.fuse()
+                    print("[INFO] Model fused successfully")
+                else:
+                    print("[INFO] Model does not support fusion, skipping")
             except Exception as e:
                 print(f"[WARNING] Could not fuse model: {e}")
             
@@ -36,14 +39,14 @@ class ObjectDetector:
             print(f"[INFO] Detection threshold: {self.threshold}")
             
         except Exception as e:
-            print(f"❌ Error loading model: {e}")
+            print(f"  Error loading model: {e}")
             raise
 
     def detect_single_image(self, image_path):
         """Run detection on a single image"""
         try:
             if not os.path.exists(image_path):
-                print(f"❌ Image file not found: {image_path}")
+                print(f"  Image file not found: {image_path}")
                 return None
             
             # Run inference
@@ -51,7 +54,7 @@ class ObjectDetector:
             return results
             
         except Exception as e:
-            print(f"❌ Error during detection on {image_path}: {e}")
+            print(f"  Error during detection on {image_path}: {e}")
             return None
 
     def detect_objects_in_folder(self, input_folder="core/input_frames", output_folder="core/output_frames"):
@@ -61,12 +64,12 @@ class ObjectDetector:
         try:
             os.makedirs(output_folder, exist_ok=True)
         except Exception as e:
-            print(f"❌ Error creating output folder: {e}")
+            print(f"  Error creating output folder: {e}")
             return {"processed": 0, "detections": 0, "errors": 1}
 
         # Check if input folder exists
         if not os.path.exists(input_folder):
-            print(f"❌ Input folder not found: {input_folder}")
+            print(f"  Input folder not found: {input_folder}")
             return {"processed": 0, "detections": 0, "errors": 1}
 
         # Get all image files
@@ -78,11 +81,11 @@ class ObjectDetector:
             ]
             image_files.sort()  # Sort for consistent processing order
         except Exception as e:
-            print(f"❌ Error reading input folder: {e}")
+            print(f"  Error reading input folder: {e}")
             return {"processed": 0, "detections": 0, "errors": 1}
         
         if not image_files:
-            print(f"❌ No image files found in: {input_folder}")
+            print(f"  No image files found in: {input_folder}")
             return {"processed": 0, "detections": 0, "errors": 0}
 
         print(f"[INFO] Processing {len(image_files)} images...")
@@ -118,7 +121,7 @@ class ObjectDetector:
                 # Load original image
                 original_image = cv2.imread(image_path)
                 if original_image is None:
-                    print(f"❌ Could not load image: {filename}")
+                    print(f"  Could not load image: {filename}")
                     error_count += 1
                     continue
 
@@ -141,11 +144,11 @@ class ObjectDetector:
                     detection_count += 1
                     print(f"[SAVED] {filename} -> {output_path} ({len(boxes)} objects)")
                 else:
-                    print(f"❌ Failed to save: {output_path}")
+                    print(f"  Failed to save: {output_path}")
                     error_count += 1
 
             except Exception as e:
-                print(f"❌ Error processing {filename}: {e}")
+                print(f"  Error processing {filename}: {e}")
                 error_count += 1
                 continue
             
@@ -170,7 +173,7 @@ class ObjectDetector:
             
             # Validate frame dimensions
             if len(frame_array.shape) != 3 or frame_array.shape[2] != 3:
-                print(f"❌ Invalid frame shape: {frame_array.shape}")
+                print(f"  Invalid frame shape: {frame_array.shape}")
                 return None
             
             # Run inference directly on the numpy array
@@ -178,7 +181,7 @@ class ObjectDetector:
             return results
             
         except Exception as e:
-            print(f"❌ Error during frame detection: {e}")
+            print(f"  Error during frame detection: {e}")
             return None
 
     def annotate_frame(self, frame, results):
@@ -247,13 +250,13 @@ class ObjectDetector:
                                 cv2.FONT_HERSHEY_SIMPLEX, font_scale, (255, 255, 255), font_thickness)
                     
                 except Exception as e:
-                    print(f"⚠️ Warning: Error drawing box: {e}")
+                    print(f"   Warning: Error drawing box: {e}")
                     continue
             
             return frame
             
         except Exception as e:
-            print(f"❌ Error annotating frame: {e}")
+            print(f"  Error annotating frame: {e}")
             return frame
 
     def get_model_info(self):
@@ -266,7 +269,7 @@ class ObjectDetector:
                 "classes": list(self.model.names.values()) if hasattr(self.model, 'names') else ["Unknown"]
             }
         except Exception as e:
-            print(f"❌ Error getting model info: {e}")
+            print(f"  Error getting model info: {e}")
             return {"error": str(e)}
 
     def update_threshold(self, new_threshold):
@@ -276,5 +279,5 @@ class ObjectDetector:
             print(f"[INFO] Detection threshold updated to: {self.threshold}")
             return True
         else:
-            print(f"❌ Invalid threshold value: {new_threshold}. Must be between 0.0 and 1.0")
+            print(f"  Invalid threshold value: {new_threshold}. Must be between 0.0 and 1.0")
             return False
