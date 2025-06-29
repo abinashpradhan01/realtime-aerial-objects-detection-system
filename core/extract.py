@@ -44,7 +44,7 @@ def validate_video_file(video_path):
         
         if fps <= 0:
             fps = 30  # Default fallback
-            print("⚠️ Warning: FPS not detected. Using default 30 FPS.")
+            print("Warning: FPS not detected. Using default 30 FPS.")
         
         if frame_count <= 0:
             return None, "Invalid frame count"
@@ -97,18 +97,18 @@ def extractFrames(video_path: str, max_frames=180, target_fps=1):
     try:
         os.makedirs(output_folder, exist_ok=True)
     except Exception as e:
-        print(f"❌ Error creating output folder: {e}")
+        print(f"Error creating output folder: {e}")
         return 0
     
     # Check if video file exists
     if not os.path.exists(video_path):
-        print(f"❌ Error: Video file not found: {video_path}")
+        print(f"Error: Video file not found: {video_path}")
         return 0
     
     # Validate video file
     video_props, error = validate_video_file(video_path)
     if video_props is None:
-        print(f"❌ Error: {error}")
+        print(f"Error: {error}")
         return 0
     
     print(f"[INFO] Video properties - Width: {video_props['width']}, Height: {video_props['height']}")
@@ -125,14 +125,14 @@ def extractFrames(video_path: str, max_frames=180, target_fps=1):
     free_space = get_free_disk_space(output_folder)
     
     if free_space < required_space:
-        print(f"❌ Error: Insufficient disk space.")
+        print(f"Error: Insufficient disk space.")
         print(f"Required: {required_space/1024/1024:.1f}MB, Available: {free_space/1024/1024:.1f}MB")
         return 0
     
     # Open video capture
     cap = cv2.VideoCapture(video_path)
     if not cap.isOpened():
-        print(f"❌ Error: Could not open video file: {video_path}")
+        print(f"Error: Could not open video file: {video_path}")
         return 0
     
     try:
@@ -149,20 +149,20 @@ def extractFrames(video_path: str, max_frames=180, target_fps=1):
             ret, frame = cap.read()
             
             if not ret:
-                print(f"⚠️ Warning: Could not read frame at position {current_frame}")
+                print(f"Warning: Could not read frame at position {current_frame}")
                 # Try to continue with next frame
                 current_frame += frame_interval
                 continue
             
             # Validate frame
             if frame is None or frame.size == 0:
-                print(f"⚠️ Warning: Empty frame at position {current_frame}")
+                print(f"Warning: Empty frame at position {current_frame}")
                 current_frame += frame_interval
                 continue
             
             # Validate frame dimensions
             if len(frame.shape) != 3 or frame.shape[2] != 3:
-                print(f"⚠️ Warning: Invalid frame format at position {current_frame}")
+                print(f"Warning: Invalid frame format at position {current_frame}")
                 current_frame += frame_interval
                 continue
             
@@ -180,7 +180,7 @@ def extractFrames(video_path: str, max_frames=180, target_fps=1):
                     if saved_frame_count % 10 == 0 or saved_frame_count <= 5:
                         print(f"[INFO] Saved {saved_frame_count} frames...")
                 else:
-                    print(f"⚠️ Warning: Failed to save frame {saved_frame_count}")
+                    print(f"Warning: Failed to save frame {saved_frame_count}")
                     
             except Exception as e:
                 print(f"❌ Error saving frame {saved_frame_count}: {e}")
@@ -191,7 +191,7 @@ def extractFrames(video_path: str, max_frames=180, target_fps=1):
         
         # Final validation
         if saved_frame_count == 0:
-            print(f"❌ Error: No frames were successfully extracted")
+            print(f"Error: No frames were successfully extracted")
             return 0
         
         # Verify saved files
@@ -200,11 +200,11 @@ def extractFrames(video_path: str, max_frames=180, target_fps=1):
             actual_count = len(saved_files)
             
             if actual_count != saved_frame_count:
-                print(f"⚠️ Warning: Expected {saved_frame_count} files, found {actual_count}")
+                print(f" Warning: Expected {saved_frame_count} files, found {actual_count}")
                 saved_frame_count = actual_count
                 
         except Exception as e:
-            print(f"⚠️ Warning: Could not verify saved files: {e}")
+            print(f" Warning: Could not verify saved files: {e}")
         
         print(f"[SUCCESS] Extracted {saved_frame_count} frames to '{output_folder}'")
         
@@ -233,8 +233,11 @@ def cleanup_extracted_frames(folder_path="core/input_frames"):
             shutil.rmtree(folder_path)
             print(f"[INFO] Cleaned up {file_count} extracted frames")
             return True
+        else:
+            print(f"[INFO] Folder {folder_path} does not exist, nothing to clean up")
+            return True
     except Exception as e:
-        print(f"⚠️ Warning: Could not cleanup frames folder: {e}")
+        print(f" Warning: Could not cleanup frames folder: {e}")
         return False
 
 
