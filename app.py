@@ -82,30 +82,34 @@ class DroneDetectionProcessor(VideoProcessorBase):
                 should_process = (self.frame_count % self.process_every_n_frames == 0)
                 
                 if should_process:
-                    # Resize for faster inference
-                    target_size = (640, 360)
-                    img_resized = cv2.resize(img, target_size)
-                    
-                    # Run detection
-                    results = self.model.detect_frame_array(img_resized)
-                    
-                    # Check for detections
-                    has_detections = False
-                    if results and len(results) > 0:
-                        result = results[0]
-                        if result.boxes is not None and len(result.boxes) > 0:
-                            has_detections = True
-                            self.detection_count += 1
-                            self.last_detection_time = current_time
-                            
-                            # Annotate the resized frame
-                            img_resized = self.model.annotate_frame(img_resized, results)
-                    
-                    # Resize back to original dimensions
-                    img_out = cv2.resize(img_resized, (img.shape[1], img.shape[0]))
-                    self.last_annotated = img_out.copy()
-                    
-                    return av.VideoFrame.from_ndarray(img_out, format="bgr24")
+                    try:
+                        # Resize for faster inference
+                        target_size = (640, 360)
+                        img_resized = cv2.resize(img, target_size)
+                        
+                        # Run detection
+                        results = self.model.detect_frame_array(img_resized)
+                        
+                        # Check for detections
+                        has_detections = False
+                        if results and len(results) > 0:
+                            result = results[0]
+                            if result.boxes is not None and len(result.boxes) > 0:
+                                has_detections = True
+                                self.detection_count += 1
+                                self.last_detection_time = current_time
+                                
+                                # Annotate the resized frame
+                                img_resized = self.model.annotate_frame(img_resized, results)
+                        
+                        # Resize back to original dimensions
+                        img_out = cv2.resize(img_resized, (img.shape[1], img.shape[0]))
+                        self.last_annotated = img_out.copy()
+                        
+                        return av.VideoFrame.from_ndarray(img_out, format="bgr24")
+                    except Exception as e:
+                        print(f"Error in frame processing: {e}")
+                        return frame
                 
                 else:
                     # Use last annotated frame if we have recent detections
@@ -117,7 +121,7 @@ class DroneDetectionProcessor(VideoProcessorBase):
                         return frame
                         
         except Exception as e:
-            st.error(f"Error in video processing: {e}")
+            print(f"Error in video processing: {e}")
             return frame
 
 def clear_folder(folder):
@@ -150,10 +154,16 @@ def process_uploaded_video(video_file):
     if video_file.size > max_size:
         return [], f'Video file too large ({video_file.size / (1024*1024):.1f}MB). Maximum size: 100MB'
     
-    # Create temporary video file
-    temp_video_path = tempfile.mktemp(suffix='.mp4')
+    # Create temporary video file using secure method
+    temp_video_file = None
+    temp_video_path = None
     
     try:
+        # Create temporary file with proper cleanup
+        temp_video_file = tempfile.NamedTemporaryFile(suffix='.mp4', delete=False)
+        temp_video_path = temp_video_file.name
+        temp_video_file.close()
+        
         # Save uploaded file to temporary location
         with open(temp_video_path, 'wb') as f:
             f.write(video_file.read())
@@ -215,7 +225,8 @@ def process_uploaded_video(video_file):
         return detected_images, f'Detection complete: {len(detected_images)} frame(s) with drone detections out of {frame_count} total frames.'
         
     except Exception as e:
-        cleanup_temp_files([temp_video_path])
+        if temp_video_path:
+            cleanup_temp_files([temp_video_path])
         st.error(f"Error processing video: {e}")
         return [], f'Error processing video: {str(e)}'
 
